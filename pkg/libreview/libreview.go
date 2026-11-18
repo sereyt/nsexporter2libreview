@@ -310,13 +310,6 @@ func (lv *libreview) ImportMeasurements(modificators ...MeasuremenModificator) (
 		lv.lastEntryTS = &e.Timestamp
 	}
 
-	// Stub
-	// For some reason the API does not return exportResp.Result.MeasurementCounts
-	exportResp.Result.MeasurementCounts.ScheduledGlucoseCount = len(m.DeviceData.MeasurementLog.ScheduledContinuousGlucoseEntries)
-	exportResp.Result.MeasurementCounts.UnScheduledGlucoseCount = len(m.DeviceData.MeasurementLog.UnscheduledContinuousGlucoseEntries)
-	exportResp.Result.MeasurementCounts.InsulinCount = len(m.DeviceData.MeasurementLog.InsulinEntries)
-	exportResp.Result.MeasurementCounts.FoodCount = len(m.DeviceData.MeasurementLog.FoodEntries)
-
 	return
 }
 

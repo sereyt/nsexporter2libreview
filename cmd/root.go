@@ -101,17 +101,31 @@ func getNightscoutClient(ctx context.Context) (nightscout.Client, error) {
 		return nil, errors.Wrap(err, "cant load config")
 	}
 
-	if len(settings.Nightscout().APISecret) > 0 {
-		hash := sha1.Sum([]byte(settings.Nightscout().APISecret))
-		debug("used api-secret for auth")
-		return nightscout.NewWithAPISecret(settings.Nightscout().URL, hex.EncodeToString(hash[:]))
+	nsConfig := settings.Nightscout()
+
+	if len(nsConfig.URL) == 0 {
+		return nil, errors.New("nightscout.url is not set")
 	}
 
-	jwtToken, err := nightscout.NewJWTToken(ctx, settings.Nightscout().URL, settings.Nightscout().APIToken)
+	if len(nsConfig.APISecret) > 0 {
+		hash := sha1.Sum([]byte(nsConfig.APISecret))
+		debug("used api-secret for auth")
+		return nightscout.NewWithAPISecret(nsConfig.URL, hex.EncodeToString(hash[:]))
+	}
+
+	// Nightscout can expose entries without authentication (for example
+	// when authDefaultRoles=readable). Do not fail before the first request
+	// just because a token was not configured.
+	if len(nsConfig.APIToken) == 0 {
+		debug("nightscout token is not set, using anonymous access")
+		return nightscout.New(nsConfig.URL)
+	}
+
+	jwtToken, err := nightscout.NewJWTToken(ctx, nsConfig.URL, nsConfig.APIToken)
 	if err != nil {
 		return nil, err
 	}
 
 	debug("used api-token for auth")
-	return nightscout.NewWithJWTToken(settings.Nightscout().URL, jwtToken)
+	return nightscout.NewWithJWTToken(nsConfig.URL, jwtToken)
 }

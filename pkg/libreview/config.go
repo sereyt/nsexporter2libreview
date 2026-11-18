@@ -26,7 +26,7 @@ type ImportConfig struct {
 	Culture     string      `yaml:"culture"`
 	GatewayType string      `yaml:"gatewayType"`
 	Uom         string      `yaml:"uom"`
-	DevSettings DevSettings `yaml:"deviceSettings"`
+	DevSettings DevSettings `yaml:"deviceSettings" mapstructure:"deviceSettings"`
 }
 
 type Config struct {

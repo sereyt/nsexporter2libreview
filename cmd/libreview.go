@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"math/rand"
 	"os"
 	"time"
@@ -56,7 +57,10 @@ func newLibreCommand(ctx context.Context) *cobra.Command {
 				Count:    settings.NightscoutMaxEnties(),
 			})
 			if err != nil {
-				return err
+				log.Warn().
+					Err(err).
+					Msg("Cant get insulin entries from Nightscout, insulin export will be skipped")
+				nsInsulinEntries = &nightscout.Treatments{}
 			}
 
 			var lastTS *time.Time
@@ -98,7 +102,10 @@ func newLibreCommand(ctx context.Context) *cobra.Command {
 				Count:    settings.NightscoutMaxEnties(),
 			})
 			if err != nil {
-				return err
+				log.Warn().
+					Err(err).
+					Msg("Cant get food entries from Nightscout, food export will be skipped")
+				nsCarbsEntries = &nightscout.Treatments{}
 			}
 
 			if lastTS != nil {
@@ -253,6 +260,15 @@ func newLibreCommand(ctx context.Context) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if resp == nil {
+				return fmt.Errorf("LibreView returned an empty import response")
+			}
+			if resp.Result.Status != 0 {
+				log.Warn().
+					Int("status", resp.Result.Status).
+					Str("reason", resp.Reason).
+					Msg("LibreView returned a non-zero result status")
+			}
 
 			if len(libreGenericEntries) > 0 && importGeneric {
 				err := lv.NewSensor(newSensorSerial)
@@ -263,12 +279,29 @@ func newLibreCommand(ctx context.Context) *cobra.Command {
 				}
 			}
 
+			preparedScheduled := len(libreScheduledGlucoseEntries)
+			preparedUnscheduled := len(libreUnscheduledGlucoseEntries)
+			imported := resp.Result.MeasurementCounts
+
 			log.Info().
-				Int("scheduledGlucoseEntries", resp.Result.MeasurementCounts.ScheduledGlucoseCount).
-				Int("unscheduledGlucoseEntries", resp.Result.MeasurementCounts.UnScheduledGlucoseCount).
-				Int("insulin", resp.Result.MeasurementCounts.InsulinCount).
-				Int("food", resp.Result.MeasurementCounts.FoodCount).
-				Msg("Export measurements success")
+				Int("preparedScheduledGlucoseEntries", preparedScheduled).
+				Int("preparedUnscheduledGlucoseEntries", preparedUnscheduled).
+				Int("libreViewScheduledGlucoseEntries", imported.ScheduledGlucoseCount).
+				Int("libreViewUnscheduledGlucoseEntries", imported.UnScheduledGlucoseCount).
+				Int("libreViewInsulinEntries", imported.InsulinCount).
+				Int("libreViewFoodEntries", imported.FoodCount).
+				Int("libreViewTotalEntries", imported.TotalCount).
+				Int("libreViewResultStatus", resp.Result.Status).
+				Msg("Export measurements response")
+
+			// Some LibreView API versions return HTTP 200 with status=0 but
+			// do not include MeasurementCounts. If counts are present and
+			// glucose was sent but zero was accepted, the readings were
+			// rejected by LibreView (usually because of invalid timestamps).
+			if imported.TotalCount == 0 && (preparedScheduled > 0 || preparedUnscheduled > 0) {
+				log.Debug().
+					Msg("LibreView did not report imported entries; API may omit MeasurementCounts")
+			}
 
 			lastTS = lv.LastImported()
 			if lastTS != nil && len(lastTimestampFile) > 0 && !dryRun {

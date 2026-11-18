@@ -26,34 +26,47 @@ func LibreUnscheduledContinuousGlucoseEntryToSensorStart(e *libreview.Unschedule
 
 func NSToLibreScheduledGlucoseEntry(e *nightscout.GlucoseEntry) *libreview.ScheduledContinuousGlucoseEntry {
 
+	timestamp := e.Timestamp()
+	factoryTimestamp := e.FactoryTimestamp()
+	if factoryTimestamp.IsZero() {
+		factoryTimestamp = timestamp
+	}
+
 	return &libreview.ScheduledContinuousGlucoseEntry{
 		ValueInMgPerDl: e.Sgv.Float64(),
 		ExtendedProperties: libreview.ExtendedProperties{
-			FactoryTimestamp:       e.SysTime,
+			FactoryTimestamp:       factoryTimestamp.UTC(),
 			LowOutOfRange:          e.Sgv.LowOutOfRange(nightscout.DefaultMinSVG),
 			HighOutOfRange:         e.Sgv.HighOutOfRange(nightscout.DefaultMaxSVG),
 			IsFirstAfterTimeChange: false,
 			CanMerge:               "true",
 		},
-		RecordNumber: libreview.RecordNumberIncrement + e.Date.Time().Unix(),
-		Timestamp:    e.Date.Time().Local(),
+		RecordNumber: libreview.RecordNumberIncrement + timestamp.Unix(),
+		Timestamp:    timestamp.Local(),
 	}
 }
 
 func NSToLibreUnscheduledGlucoseEntry(e *nightscout.GlucoseEntry) *libreview.UnscheduledContinuousGlucoseEntry {
 	var duration = time.Minute * time.Duration(rand.Intn(3))
+
+	timestamp := e.Timestamp()
+	factoryTimestamp := e.FactoryTimestamp()
+	if factoryTimestamp.IsZero() {
+		factoryTimestamp = timestamp
+	}
+
 	return &libreview.UnscheduledContinuousGlucoseEntry{
 		ValueInMgPerDl: e.Sgv.Float64(),
 		ExtendedProperties: libreview.UnscheduledExtendedProperties{
-			FactoryTimestamp:       e.SysTime,
+			FactoryTimestamp:       factoryTimestamp.UTC(),
 			LowOutOfRange:          e.Sgv.LowOutOfRange(nightscout.DefaultMinSVG),
 			HighOutOfRange:         e.Sgv.HighOutOfRange(nightscout.DefaultMaxSVG),
 			IsFirstAfterTimeChange: false,
 			TrendArrow:             ToLibreDirection(e.Direction),
 			IsActionable:           true,
 		},
-		RecordNumber: libreview.RecordNumberIncrementUnscheduled + e.Date.Time().Unix(),
-		Timestamp:    e.Date.Time().Local().Add(duration),
+		RecordNumber: libreview.RecordNumberIncrementUnscheduled + timestamp.Unix(),
+		Timestamp:    timestamp.Local().Add(duration),
 	}
 }
 

@@ -3,6 +3,7 @@ package nightscout
 import (
 	"context"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/blutz1982/go-nsexporter-libreview/pkg/rest"
@@ -73,16 +74,38 @@ func (svg SVG) LowOutOfRange(min int) string {
 type NSTime time.Time
 
 func (t *NSTime) Time() time.Time {
+	if t == nil {
+		return time.Time{}
+	}
 	return time.Time(*t)
 }
 
 func (t *NSTime) UnmarshalJSON(data []byte) error {
-	millis, err := strconv.ParseFloat(string(data), 64)
-	if err != nil {
-		return err
+	value := strings.TrimSpace(string(data))
+	if value == "" || value == "null" || value == `""` {
+		*t = NSTime(time.Time{})
+		return nil
 	}
-	*t = NSTime(time.UnixMilli(int64(millis)))
-	return nil
+
+	// Nightscout normally sends `date` as milliseconds, but some
+	// uploaders/older versions may send it as a quoted string or ISO date.
+	value = strings.Trim(value, `"`)
+
+	millis, err := strconv.ParseFloat(value, 64)
+	if err == nil {
+		*t = NSTime(time.UnixMilli(int64(millis)))
+		return nil
+	}
+
+	for _, layout := range []string{time.RFC3339Nano, "2006-01-02T15:04:05.9999999Z07:00"} {
+		ts, parseErr := time.Parse(layout, value)
+		if parseErr == nil {
+			*t = NSTime(ts)
+			return nil
+		}
+	}
+
+	return err
 }
 
 func (t *NSTime) MarshalJSON() ([]byte, error) {
@@ -121,6 +144,41 @@ func (g *GlucoseEntry) Kind() string {
 	return "GlucoseEntry"
 }
 
+// Timestamp returns the time when the glucose value was measured.
+// Nightscout 15 no longer returns dateString/sysTime, so `date` is the
+// primary source. Older responses may only have dateString/created_at.
+func (e *GlucoseEntry) Timestamp() time.Time {
+	if e == nil {
+		return time.Time{}
+	}
+	if e.Date != nil && !e.Date.Time().IsZero() {
+		return e.Date.Time()
+	}
+	if !e.DateString.IsZero() {
+		return e.DateString
+	}
+	if e.CreatedAt != "" {
+		if ts, err := time.Parse(time.RFC3339Nano, e.CreatedAt); err == nil {
+			return ts
+		}
+	}
+	return time.Time{}
+}
+
+// FactoryTimestamp returns the sensor/factory time for LibreView.
+// It falls back to the measurement date because Nightscout 15 entries
+// do not contain `sysTime` anymore. Without this fallback LibreView gets
+// a zero factory timestamp (0001-01-01) and silently ignores the readings.
+func (e *GlucoseEntry) FactoryTimestamp() time.Time {
+	if e == nil {
+		return time.Time{}
+	}
+	if !e.SysTime.IsZero() {
+		return e.SysTime
+	}
+	return e.Timestamp()
+}
+
 type GlucoseEntries []*GlucoseEntry
 
 func (r *GlucoseEntries) Append(e *GlucoseEntry) {
@@ -135,7 +193,7 @@ type GlucoseFilterFunc func(*GlucoseEntry) bool
 
 func OnlyAfter(date time.Time) GlucoseFilterFunc {
 	return func(e *GlucoseEntry) bool {
-		return e.Date.Time().After(date)
+		return e.Timestamp().After(date)
 	}
 }
 
@@ -160,16 +218,17 @@ func DownsampleDuration(d time.Duration) DownsampleFunc {
 
 func (es *GlucoseEntries) Downsample(f DownsampleFunc) *GlucoseEntries {
 
-	var lastTS *NSTime
+	var lastTS time.Time
 
 	return es.Filter(func(e *GlucoseEntry) bool {
-		if lastTS == nil {
-			lastTS = e.Date
+		ts := e.Timestamp()
+		if lastTS.IsZero() {
+			lastTS = ts
 			return true
 		}
 
-		if lastTS.Time().Sub(e.Date.Time()) > f() {
-			lastTS = e.Date
+		if lastTS.Sub(ts) > f() {
+			lastTS = ts
 			return true
 		}
 
